@@ -1,182 +1,143 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StreamShare</title>
-
-    <!-- 1. ALLOW SCRIPTS -->
-    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
-
-    <!-- 2. LIBRARIES (Standard links without strict checks) -->
+    <title>P2P Streamer</title>
+    
+    <!-- 1. LOAD LIBRARIES FROM UNPKG (Most compatible CDN) -->
     <script src="https://unpkg.com/webtorrent@latest/webtorrent.min.js"></script>
     <script src="https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
+    
     <style>
-        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; height: 100vh; overflow: hidden; }
+        body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; }
         
-        /* Upload Screen */
-        #view-upload {
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            height: 100%; width: 100%; background: #111;
-        }
-        .box {
-            border: 2px dashed #444; padding: 40px; border-radius: 15px;
-            text-align: center; cursor: pointer; max-width: 90%;
-        }
-        .box:hover { border-color: red; background: #151515; }
-        
-        /* Player Screen */
-        #view-player { display: none; width: 100%; height: 100%; position: relative; }
-        #video-container { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-        video { width: 100%; height: 100%; max-height: 100vh; }
+        /* ERROR BOX */
+        #error-box { background: red; color: white; padding: 10px; display: none; }
 
-        /* Overlays */
-        .stats {
-            position: absolute; top: 10px; left: 10px;
-            background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; pointer-events: none;
-        }
-        .btn-share {
-            position: absolute; bottom: 20px; right: 20px;
-            background: red; color: white; border: none; padding: 10px 20px;
-            border-radius: 5px; font-weight: bold; cursor: pointer;
-        }
-
-        /* Modal */
-        #modal {
-            display: none; position: fixed; top: 50%; left: 50%;
-            transform: translate(-50%, -50%); background: #222;
-            padding: 20px; border: 1px solid #444; text-align: center; z-index: 10;
-            box-shadow: 0 0 20px black; width: 300px;
-        }
-        input { width: 95%; padding: 10px; margin: 10px 0; background: black; color: white; border: 1px solid #444; }
+        /* UPLOAD SCREEN */
+        #upload-screen { padding-top: 50px; }
+        .btn { background: #e50914; color: white; padding: 15px 30px; font-size: 20px; border: none; cursor: pointer; border-radius: 5px; margin-top: 20px; }
         
-        .hidden { display: none !important; }
+        /* PLAYER SCREEN */
+        #player-screen { display: none; height: 100vh; width: 100%; }
+        #video-box { width: 100%; height: 80%; background: black; display: flex; justify-content: center; align-items: center; }
+        video { width: 100%; height: 100%; }
+        
+        /* SHARE INFO */
+        #share-info { padding: 10px; background: #222; }
+        input { width: 80%; padding: 10px; background: #000; color: #fff; border: 1px solid #555; }
     </style>
 </head>
 <body>
 
-    <!-- UPLOAD VIEW -->
-    <div id="view-upload">
-        <div class="box" onclick="document.getElementById('fileInput').click()">
-            <i class="fas fa-cloud-upload-alt fa-3x" style="color:red; margin-bottom:10px;"></i>
-            <h2>Select Video</h2>
-            <p style="color:#777">MP4, MKV, WEBM</p>
-            <input type="file" id="fileInput" accept="video/*" style="display:none" onchange="handleUpload(this)">
-        </div>
-        <p id="status" style="margin-top:20px; color:#555;">Ready</p>
+    <!-- ERROR DISPLAY -->
+    <div id="error-box"></div>
+
+    <!-- SCREEN 1: UPLOAD -->
+    <div id="upload-screen">
+        <h1>Host a Video</h1>
+        <p>Select MP4, MKV, or WEBM</p>
+        <button class="btn" onclick="document.getElementById('fileIn').click()">Select Video</button>
+        <input type="file" id="fileIn" style="display:none" accept="video/*" onchange="startSeed(this)">
+        <p id="status">Ready</p>
     </div>
 
-    <!-- PLAYER VIEW -->
-    <div id="view-player">
-        <div id="video-container"></div>
-        <div class="stats">
-            <span id="peers">0 Peers</span> | <span id="speed">0 MB/s</span>
+    <!-- SCREEN 2: PLAYER & SHARE -->
+    <div id="player-screen">
+        <div id="video-box"></div>
+        <div id="share-info">
+            <p>Peers: <span id="peers">0</span> | Speed: <span id="speed">0</span></p>
+            <input type="text" id="share-link" readonly onclick="this.select()">
+            <br>
+            <button onclick="alert('Copy the link above!')" style="margin-top:5px;">Copy Link</button>
         </div>
-        <button class="btn-share" onclick="toggleModal()">Share Link</button>
-    </div>
-
-    <!-- MODAL -->
-    <div id="modal">
-        <h3>Share Stream</h3>
-        <div id="qrcode" style="display:flex; justify-content:center;"></div>
-        <input type="text" id="shareLink" readonly>
-        <button onclick="copyLink()" style="padding:5px 10px; cursor:pointer;">Copy</button>
-        <button onclick="toggleModal()" style="padding:5px 10px; cursor:pointer;">Close</button>
     </div>
 
     <script>
-        // --- INIT CLIENT ---
-        let client;
+        // 1. INITIALIZE CLIENT
+        const client = new WebTorrent();
+        
+        // Trackers help devices find each other
         const trackers = [
             'wss://tracker.openwebtorrent.com',
             'wss://tracker.btorrent.xyz',
-            'wss://tracker.webtorrent.dev',
             'wss://tracker.files.fm:7073/announce',
-            'wss://tracker.fastcast.nz'
+            'wss://tracker.webtorrent.dev'
         ];
 
-        try {
-            client = new WebTorrent({
-                tracker: { rtcConfig: { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] } }
-            });
-            client.on('error', err => console.log("Client error:", err));
-        } catch (e) {
-            alert("WebTorrent failed to load. Please refresh or turn off AdBlock.");
-        }
-
-        // --- CHECK URL FOR DOWNLOAD ---
-        if (window.location.hash.includes('magnet=')) {
-            const magnet = decodeURIComponent(window.location.hash.substring(8)); // Remove #magnet=
+        // 2. CHECK FOR DOWNLOAD LINK
+        if (window.location.hash.indexOf('#magnet=') > -1) {
+            const magnet = decodeURIComponent(window.location.hash.substring(8));
             startStream(magnet);
         }
 
-        // --- UPLOAD FUNCTION ---
-        function handleUpload(input) {
+        // 3. UPLOAD FUNCTION
+        function startSeed(input) {
             const file = input.files[0];
             if (!file) return;
 
-            if (typeof client === 'undefined') return alert("Library not loaded. Refresh page.");
+            document.getElementById('status').innerText = "Creating Link... Please Wait.";
 
-            document.getElementById('status').innerText = "Creating Stream... Please Wait.";
-
-            client.seed(file, { announce: trackers }, (torrent) => {
-                // Create Link
+            // SEEDING
+            client.seed(file, { announce: trackers }, function (torrent) {
+                
+                // Generate Link
                 const link = window.location.origin + window.location.pathname + '#magnet=' + encodeURIComponent(torrent.magnetURI);
                 
-                // Setup Modal
-                document.getElementById('shareLink').value = link;
-                new QRCode(document.getElementById('qrcode'), { text: link, width: 128, height: 128 });
+                // Switch UI
+                showPlayer(link);
                 
-                // Start Playing
-                startStream(torrent.magnetURI, true);
-                toggleModal(); // Show link popup
+                // Start Playing (Host view)
+                renderVideo(torrent);
             });
         }
 
-        // --- STREAM FUNCTION ---
-        function startStream(magnet, isHost = false) {
-            document.getElementById('view-upload').classList.add('hidden');
-            document.getElementById('view-player').style.display = 'block';
+        // 4. DOWNLOAD FUNCTION
+        function startStream(magnet) {
+            showPlayer(window.location.href);
+            document.getElementById('status').innerText = "Connecting...";
 
-            const torrent = client.get(magnet) || client.add(magnet, { announce: trackers });
+            client.add(magnet, { announce: trackers }, function (torrent) {
+                renderVideo(torrent);
+            });
+        }
 
-            torrent.on('ready', () => {
-                const file = torrent.files.find(f => f.name.match(/\.(mp4|mkv|webm|mov)$/i)) || torrent.files[0];
-                file.renderTo('#video-container', { autoplay: true, controls: true }, (err, elem) => {
-                    if(err) console.log(err);
-                    elem.style.width = "100%";
-                    elem.style.height = "100%";
-                });
+        // 5. VIDEO RENDERER
+        function renderVideo(torrent) {
+            const file = torrent.files.find(f => f.name.endsWith('.mp4') || f.name.endsWith('.webm') || f.name.endsWith('.mkv')) || torrent.files[0];
+            
+            // Render directly to the div
+            file.renderTo('#video-box', { autoplay: true, controls: true }, function (err, elem) {
+                if (err) showError(err.message);
+                elem.style.height = "100%";
+                elem.style.width = "100%";
             });
 
             // Update Stats
             setInterval(() => {
-                document.getElementById('speed').innerText = (torrent.downloadSpeed / 1024 / 1024).toFixed(2) + " MB/s";
-                document.getElementById('peers').innerText = torrent.numPeers + " Peers";
+                document.getElementById('peers').innerText = torrent.numPeers;
+                document.getElementById('speed').innerText = (torrent.downloadSpeed / 1024 / 1024).toFixed(2) + ' MB/s';
             }, 1000);
-            
-            // Setup Share Link for Leecher
-            if(!isHost) {
-                 const link = window.location.href;
-                 document.getElementById('shareLink').value = link;
-                 new QRCode(document.getElementById('qrcode'), { text: link, width: 128, height: 128 });
-            }
         }
 
-        // --- UTILS ---
-        function toggleModal() {
-            const m = document.getElementById('modal');
-            m.style.display = (m.style.display === 'block') ? 'none' : 'block';
+        // 6. HELPER FUNCTIONS
+        function showPlayer(link) {
+            document.getElementById('upload-screen').style.display = 'none';
+            document.getElementById('player-screen').style.display = 'block';
+            document.getElementById('share-link').value = link;
         }
-        function copyLink() {
-            document.getElementById('shareLink').select();
-            document.execCommand("copy");
-            alert("Copied!");
+
+        function showError(msg) {
+            const box = document.getElementById('error-box');
+            box.style.display = 'block';
+            box.innerText = "ERROR: " + msg;
         }
-        window.onbeforeunload = function() {
-            if (client && client.torrents.length > 0) return "Stream Active";
+        
+        // Error catching for the library itself
+        window.onerror = function(msg, url, line) {
+            showError(msg);
+            return false;
         };
     </script>
 </body>
