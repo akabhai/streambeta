@@ -4,209 +4,195 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <!-- !!! CRITICAL FIX: ALLOW WEBSOCKETS & BLOBS !!! -->
-    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src * 'unsafe-inline'; img-src * data: blob: 'unsafe-inline'; frame-src *; style-src * 'unsafe-inline';">
+    <!-- 1. SECURITY POLICY: Allows WebSockets (wss:) and Blob streams -->
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src * 'unsafe-inline'; img-src * data: blob: 'unsafe-inline'; media-src * blob: 'unsafe-inline'; frame-src *;">
     
     <title>StreamShare Cinema</title>
     
-    <!-- Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- 2. LIBRARIES (Fixed with 'crossorigin' to stop Tracking errors) -->
+    <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 
     <style>
-        :root { --bg: #000; --surface: #141414; --primary: #E50914; --text: #fff; }
-        body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: sans-serif; overflow-x: hidden; }
+        :root { --bg: #050505; --surface: #1a1a1a; --primary: #E50914; --text: #e0e0e0; }
+        body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-x: hidden; }
         
-        /* Fullscreen Player Container */
-        .player-container {
-            width: 100%;
+        /* Fullscreen Player */
+        #video-stage {
+            width: 100vw;
             height: 100vh;
+            background: #000;
             display: flex;
             justify-content: center;
             align-items: center;
-            background: #000;
             position: relative;
         }
-
-        /* The Video Element */
-        video {
-            width: 100%;
-            height: 100%;
-            max-height: 100vh;
-            object-fit: contain; /* Ensures video isn't stretched */
-        }
-
-        /* Overlays */
-        .overlay-ui {
-            position: absolute;
-            top: 20px; left: 20px; right: 20px;
-            display: flex;
-            justify-content: space-between;
-            z-index: 10;
-            pointer-events: none; /* Let clicks pass through to video */
-        }
         
-        .badge {
-            background: rgba(0,0,0,0.6);
-            backdrop-filter: blur(5px);
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            pointer-events: auto;
-        }
+        /* The Video Element (Responsive) */
+        #player-wrapper { width: 100%; height: 100%; }
+        video { width: 100%; height: 100%; max-height: 100vh; object-fit: contain; }
 
-        .controls {
-            position: absolute;
-            bottom: 20px; right: 20px;
-            display: flex;
-            gap: 10px;
-            z-index: 10;
-        }
-
-        .btn {
-            background: rgba(255,255,255,0.15);
-            border: none;
-            color: white;
-            padding: 10px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            backdrop-filter: blur(5px);
-            transition: 0.2s;
-            font-weight: bold;
-            text-decoration: none;
-        }
-        .btn:hover { background: var(--primary); }
-
-        /* Upload Screen */
+        /* Upload UI */
         #upload-screen {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: var(--surface);
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg);
+            z-index: 100;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            z-index: 20;
-            text-align: center;
         }
-        
-        .drop-box {
+
+        .upload-card {
             border: 2px dashed #444;
-            padding: 50px;
+            background: var(--surface);
+            padding: 60px;
             border-radius: 20px;
+            text-align: center;
             cursor: pointer;
+            transition: 0.3s;
+            max-width: 90%;
+        }
+        .upload-card:hover { border-color: var(--primary); transform: scale(1.02); }
+        .upload-card h1 { margin: 10px 0; color: white; }
+
+        /* Overlays & Controls */
+        .overlay-top {
+            position: absolute; top: 20px; left: 20px; right: 20px;
+            display: flex; justify-content: space-between;
+            pointer-events: none; z-index: 10;
+        }
+        .badge {
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(4px);
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-weight: bold;
+            display: flex; align-items: center; gap: 8px;
+            pointer-events: auto;
+        }
+
+        .controls-bottom {
+            position: absolute; bottom: 30px; right: 30px;
+            display: flex; gap: 15px; z-index: 10;
+        }
+
+        .btn {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            font-weight: 600;
+            backdrop-filter: blur(4px);
             transition: 0.2s;
         }
-        .drop-box:hover { border-color: var(--primary); background: #1a1a1a; }
-        
-        /* Loading Spinner */
+        .btn:hover { background: var(--primary); border-color: var(--primary); }
+
+        /* Modal */
+        .modal {
+            display: none; position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--surface);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            border: 1px solid #333;
+            z-index: 200;
+            text-align: center;
+            min-width: 320px;
+        }
+        .modal input {
+            width: 100%; padding: 12px;
+            background: #000; border: 1px solid #333;
+            color: #fff; border-radius: 6px;
+            margin: 15px 0;
+        }
+
+        /* Spinner */
         .spinner {
             width: 40px; height: 40px;
             border: 4px solid rgba(255,255,255,0.1);
             border-top: 4px solid var(--primary);
             border-radius: 50%;
             animation: spin 1s linear infinite;
+            margin: 0 auto;
         }
         @keyframes spin { 100% { transform: rotate(360deg); } }
-
-        /* Share Modal */
-        .modal {
-            position: fixed; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            background: var(--surface);
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 0 50px rgba(0,0,0,0.8);
-            z-index: 50;
-            display: none;
-            text-align: center;
-            border: 1px solid #333;
-            min-width: 300px;
-        }
-        .modal input {
-            width: 100%;
-            padding: 10px;
-            background: #000;
-            border: 1px solid #333;
-            color: #fff;
-            margin: 15px 0;
-            border-radius: 5px;
-        }
-
         .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
-    <!-- UPLOAD SCREEN -->
+    <!-- 1. UPLOAD VIEW -->
     <div id="upload-screen">
-        <div class="drop-box" onclick="document.getElementById('file-input').click()">
-            <i class="fas fa-play-circle fa-4x" style="color: var(--primary); margin-bottom: 20px;"></i>
-            <h1>Stream Video</h1>
-            <p style="color: #888;">Select MP4, MKV, or WEBM</p>
+        <div class="upload-card" onclick="document.getElementById('file-input').click()">
+            <i class="fas fa-film fa-4x" style="color: #555; margin-bottom: 20px;"></i>
+            <h1>Host a Video</h1>
+            <p style="color: #888;">Click to select MP4, MKV, WEBM</p>
             <input type="file" id="file-input" accept="video/*" style="display:none">
         </div>
-        <div id="preparing-ui" class="hidden" style="margin-top: 20px;">
-            <div class="spinner" style="margin: 0 auto 10px auto;"></div>
-            <p>Generating Stream Link...</p>
+        <div id="loading-ui" class="hidden" style="margin-top:30px; text-align:center;">
+            <div class="spinner"></div>
+            <p style="margin-top:10px;">Starting Server...</p>
         </div>
     </div>
 
-    <!-- PLAYER SCREEN -->
-    <div id="player-screen" class="hidden">
-        <div class="player-container" id="video-wrapper">
-            <!-- Video injects here -->
-            <div id="buffering" style="position: absolute;">
-                <div class="spinner"></div>
-                <p style="margin-top:10px; text-shadow: 0 2px 5px black;">Connecting to peers...</p>
+    <!-- 2. STREAM PLAYER VIEW -->
+    <div id="video-stage" class="hidden">
+        
+        <div id="player-wrapper">
+            <!-- Video injected here by JS -->
+        </div>
+
+        <div id="buffer-msg" style="position:absolute; z-index:5; text-align:center;">
+            <div class="spinner"></div>
+            <p style="text-shadow: 0 2px 4px black;">Connecting to Peers...</p>
+        </div>
+
+        <div class="overlay-top">
+            <div class="badge">
+                <i class="fas fa-play-circle"></i> <span id="vid-title">Loading...</span>
+            </div>
+            <div class="badge">
+                <i class="fas fa-signal"></i> <span id="peers-stat">0</span>
+                <span style="margin:0 8px; opacity:0.3">|</span>
+                <i class="fas fa-tachometer-alt"></i> <span id="speed-stat">0 MB/s</span>
             </div>
         </div>
 
-        <div class="overlay-ui">
-            <div class="badge">
-                <i class="fas fa-video"></i> <span id="file-title">Loading...</span>
-            </div>
-            <div class="badge">
-                <i class="fas fa-users"></i> <span id="peers-count">0</span>
-                <span style="margin: 0 5px; opacity: 0.5;">|</span>
-                <i class="fas fa-bolt"></i> <span id="speed-count">0 MB/s</span>
-            </div>
-        </div>
-
-        <div class="controls">
-            <button class="btn" onclick="toggleShare()"><i class="fas fa-share-alt"></i> Share</button>
-            <a id="download-btn" class="btn hidden" href="#" download><i class="fas fa-download"></i> Save</a>
+        <div class="controls-bottom">
+            <button class="btn" onclick="toggleModal()"><i class="fas fa-link"></i> Share Link</button>
+            <a id="dl-btn" class="btn hidden" href="#" download><i class="fas fa-save"></i> Save Video</a>
         </div>
     </div>
 
-    <!-- SHARE MODAL -->
+    <!-- SHARE POPUP -->
     <div id="share-modal" class="modal">
         <h3>Share Stream</h3>
-        <div id="qrcode" style="display:flex; justify-content:center; margin: 10px 0;"></div>
+        <div id="qrcode" style="display:flex; justify-content:center; margin:15px 0;"></div>
         <input type="text" id="share-link" readonly>
-        <button class="btn" style="background: var(--primary); width: 100%;" onclick="copyLink()">Copy Link</button>
-        <p style="color:#e74c3c; font-size: 0.8rem; margin-top: 10px;">⚠ Don't close this tab or stream stops!</p>
-        <button class="btn" style="background: transparent; margin-top: 10px;" onclick="toggleShare()">Close</button>
+        <button class="btn" style="width:100%; background:var(--primary);" onclick="copyLink()">Copy to Clipboard</button>
+        <br><br>
+        <button class="btn" style="background:transparent; border:none;" onclick="toggleModal()">Close</button>
+        <p style="color:#e74c3c; font-size:0.8rem; margin-top:10px;">⚠ Keep this tab OPEN to host the stream!</p>
     </div>
 
     <script>
-        // --- 1. CONFIGURATION ---
-        // Massive list of trackers to ensure connection works
+        // 1. STABLE TRACKERS (Mix of Secure WebSockets)
         const trackers = [
             'wss://tracker.openwebtorrent.com',
             'wss://tracker.btorrent.xyz',
             'wss://tracker.webtorrent.dev',
             'wss://tracker.files.fm:7073/announce',
             'wss://tracker.fastcast.nz',
-            'wss://tracker.peer.ooo',
-            'wss://tracker.sloppyta.co:443/announce',
-            'wss://tracker.novage.com.ua:443/announce'
+            'wss://tracker.peer.ooo'
         ];
 
+        // Initialize Client
         const client = new WebTorrent({
             tracker: {
                 rtcConfig: {
@@ -218,65 +204,63 @@
             }
         });
 
-        // Ignore benign websocket errors (they happen on public trackers)
-        client.on('error', (err) => { console.log("Client warning (ignored):", err.message); });
+        // !!! ERROR SUPPRESSION: Hides the red WebSocket errors from console !!!
+        client.on('error', function(err) { /* Silently ignore tracker connection failures */ });
 
-        // --- 2. ROUTING ---
+        // 2. APP LOGIC
         const params = new URLSearchParams(window.location.search);
         const magnet = params.get('m');
         const title = params.get('t');
 
+        // If link has magnet, go to Player Mode
         if (magnet) {
             startStream(magnet, title);
         }
 
-        // --- 3. UPLOAD LOGIC ---
+        // Handle File Upload
         document.getElementById('file-input').onchange = function(e) {
             const file = e.target.files[0];
-            if(!file) return;
+            if (!file) return;
 
-            document.querySelector('.drop-box').classList.add('hidden');
-            document.getElementById('preparing-ui').classList.remove('hidden');
+            document.querySelector('.upload-card').classList.add('hidden');
+            document.getElementById('loading-ui').classList.remove('hidden');
 
+            // Start Seeding
             client.seed(file, { announce: trackers }, (torrent) => {
                 const link = `${window.location.origin}${window.location.pathname}?m=${encodeURIComponent(torrent.magnetURI)}&t=${encodeURIComponent(file.name)}`;
-                
-                // Host immediately becomes a viewer
                 startStream(torrent.magnetURI, file.name, true, link);
             });
         };
 
-        // --- 4. STREAMING LOGIC ---
+        // 3. STREAMING ENGINE
         function startStream(magnetURI, filename, isHost = false, hostLink = null) {
+            // Switch Views
             document.getElementById('upload-screen').classList.add('hidden');
-            document.getElementById('player-screen').classList.remove('hidden');
-            document.getElementById('file-title').innerText = filename || "Stream";
+            document.getElementById('video-stage').classList.remove('hidden');
+            document.getElementById('vid-title').innerText = filename || "Stream";
 
-            // If host, we already have torrent. If leecher, add it.
+            // Get Torrent
             let torrent = client.get(magnetURI) || client.add(magnetURI, { announce: trackers });
 
             torrent.on('ready', () => {
-                // Find the video file
-                const file = torrent.files.find(f => f.name.endsWith('.mp4') || f.name.endsWith('.mkv') || f.name.endsWith('.webm')) || torrent.files[0];
+                // Find video file
+                const file = torrent.files.find(f => f.name.match(/\.(mp4|mkv|webm|mov|avi)$/i)) || torrent.files[0];
 
-                // Render directly to DIV (Magic Streaming)
-                file.renderTo('#video-wrapper', {
+                // RENDER: Streams chunks immediately to the player
+                file.renderTo('#player-wrapper', {
                     autoplay: true,
-                    controls: true, // Use browser native controls for best compatibility
-                    muted: false
+                    controls: true
                 }, (err, elem) => {
-                    if(err) return alert("Error playing video: " + err.message);
-                    document.getElementById('buffering').classList.add('hidden');
-                    
-                    // Style the injected video element
-                    elem.style.height = "100%";
+                    if(err) return alert("Format not supported by browser.");
+                    document.getElementById('buffer-msg').classList.add('hidden');
                     elem.style.width = "100%";
+                    elem.style.height = "100%";
                 });
 
-                // Setup Download Button (Streaming downloads in background)
+                // Prepare Download Button
                 file.getBlobURL((err, url) => {
-                    if(!err) {
-                        const btn = document.getElementById('download-btn');
+                    if (!err) {
+                        const btn = document.getElementById('dl-btn');
                         btn.href = url;
                         btn.download = file.name;
                         btn.classList.remove('hidden');
@@ -284,30 +268,29 @@
                 });
             });
 
-            // Update UI Stats
+            // Live Stats
             setInterval(() => {
-                document.getElementById('speed-count').innerText = (torrent.downloadSpeed / 1024 / 1024).toFixed(2) + " MB/s";
-                document.getElementById('peers-count').innerText = torrent.numPeers;
+                document.getElementById('speed-stat').innerText = (torrent.downloadSpeed / 1024 / 1024).toFixed(2) + " MB/s";
+                document.getElementById('peers-stat').innerText = torrent.numPeers + (isHost ? " (You)" : "");
                 
-                // If buffering and have peers, hide buffer text
-                if(torrent.downloadSpeed > 0) {
-                    document.getElementById('buffering').classList.add('hidden');
+                // Hide buffer spinner if downloading speed is good
+                if (torrent.downloadSpeed > 50000) { // > 50KB/s
+                    document.getElementById('buffer-msg').classList.add('hidden');
                 }
             }, 1000);
 
-            // Setup Share Modal
+            // Prepare Share Modal
             const link = hostLink || window.location.href;
             document.getElementById('share-link').value = link;
             new QRCode(document.getElementById('qrcode'), { text: link, width: 128, height: 128 });
 
-            // If Host, show share modal automatically
-            if(isHost) toggleShare();
+            if (isHost) toggleModal();
         }
 
-        // --- 5. UI HELPERS ---
-        function toggleShare() {
-            const modal = document.getElementById('share-modal');
-            modal.style.display = (modal.style.display === 'block') ? 'none' : 'block';
+        // 4. HELPER FUNCTIONS
+        function toggleModal() {
+            const m = document.getElementById('share-modal');
+            m.style.display = (m.style.display === 'block') ? 'none' : 'block';
         }
 
         function copyLink() {
@@ -317,9 +300,9 @@
             alert("Link Copied!");
         }
 
-        // Prevent closing tab
+        // Prevent accidental close
         window.onbeforeunload = function() {
-            if (client.torrents.length > 0) return "Stream is active.";
+            if (client.torrents.length > 0) return "Stream active.";
         };
     </script>
 </body>
