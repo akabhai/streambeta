@@ -3,157 +3,213 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StreamShare P2P</title>
+    <title>StreamShare</title>
     
-    <!-- 1. USE SPECIFIC STABLE VERSION (1.9.7) TO FIX HANGING -->
-    <script src="https://cdn.jsdelivr.net/npm/webtorrent@1.9.7/webtorrent.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    
+    <!-- CORE LIBRARY - STABLE VERSION -->
+    <script src="https://unpkg.com/webtorrent@1.9.7/webtorrent.min.js"></script>
+
     <style>
-        body { background: #0a0a0a; color: #fff; font-family: sans-serif; margin: 0; overflow: hidden; }
-        
-        /* UPLOAD SCREEN */
-        #screen-upload {
-            height: 100vh; display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
+        /* CLEAN, DARK UI */
+        :root { --accent: #E50914; --bg: #141414; --text: #fff; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+        /* CENTER BOX */
+        .center-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+
+        /* BUTTONS */
+        .btn-main {
+            background: var(--accent); color: white; border: none; padding: 15px 40px;
+            font-size: 1.2rem; font-weight: bold; border-radius: 8px; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(229,9,20,0.4); transition: transform 0.2s;
         }
-        .btn-select {
-            background: #E50914; padding: 15px 40px; border-radius: 50px;
-            font-size: 1.2rem; font-weight: bold; cursor: pointer; border: none; color: white;
+        .btn-main:hover { transform: scale(1.05); }
+
+        /* INPUTS */
+        input[type="text"] {
+            background: #333; border: 1px solid #555; color: white; padding: 12px;
+            width: 100%; max-width: 400px; border-radius: 4px; margin-top: 10px;
+            text-align: center; font-family: monospace;
         }
-        
-        /* PLAYER SCREEN */
-        #screen-player { display: none; width: 100vw; height: 100vh; position: relative; }
-        #video-container { width: 100%; height: 100%; background: black; display: flex; justify-content: center; align-items: center; }
+
+        /* PLAYER */
+        #view-player { display: none; width: 100%; height: 100%; background: black; position: relative; }
+        #video-container { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
         video { width: 100%; height: 100%; max-height: 100vh; }
-        
-        /* INFO BAR */
-        .info-bar {
-            position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.8);
-            padding: 15px; box-sizing: border-box; display: flex; justify-content: space-between; align-items: center;
+
+        /* OVERLAYS */
+        .status-overlay {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(0,0,0,0.7); padding: 8px 16px; border-radius: 20px;
+            font-size: 0.9rem; pointer-events: none; border: 1px solid #333;
         }
-        input { background: #222; border: 1px solid #444; color: #ddd; padding: 8px; width: 200px; border-radius: 4px; }
-        
-        /* DEBUG LOG */
-        #log { position: fixed; top: 0; left: 0; background: rgba(0,0,0,0.5); color: lime; font-family: monospace; padding: 5px; font-size: 10px; pointer-events: none; }
+        .controls-overlay {
+            position: absolute; bottom: 30px; width: 100%; text-align: center; pointer-events: auto;
+        }
+        .copy-btn {
+            background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4);
+            color: white; padding: 8px 16px; border-radius: 20px; cursor: pointer;
+            backdrop-filter: blur(5px);
+        }
+
+        /* UTILS */
+        .hidden { display: none !important; }
+        .warning { color: #ffa502; font-size: 0.9rem; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <div id="log">Init...</div>
-
     <!-- 1. UPLOAD SCREEN -->
-    <div id="screen-upload">
-        <h1 style="margin-bottom: 10px;">P2P Video Host</h1>
-        <p id="status-text" style="color: #aaa; margin-bottom: 30px;">Select a video to create a stream link</p>
+    <div id="view-upload" class="center-screen">
+        <h1 style="margin-bottom: 5px;">StreamShare</h1>
+        <p style="color:#888; margin-bottom: 30px;">P2P Instant Video Hosting</p>
+
+        <button class="btn-main" onclick="document.getElementById('fileIn').click()">Select Video</button>
+        <input type="file" id="fileIn" style="display:none" accept="video/*" onchange="handleFile(this)">
         
-        <button class="btn-select" onclick="document.getElementById('fileInput').click()">Select Video</button>
-        <input type="file" id="fileInput" style="display:none" accept="video/*" onchange="startUpload(this)">
+        <div id="processing" class="hidden" style="margin-top: 20px;">
+            <div style="width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s infinite; margin: 0 auto;"></div>
+            <p>Generating Stream Link...</p>
+        </div>
     </div>
 
     <!-- 2. PLAYER SCREEN -->
-    <div id="screen-player">
+    <div id="view-player">
         <div id="video-container"></div>
-        <div class="info-bar">
-            <div>
-                <span style="color:#aaa">Link:</span>
-                <input type="text" id="share-link" readonly onclick="this.select()">
-            </div>
-            <div style="text-align: right;">
-                <span id="peers">0 Peers</span> | <span id="speed">0 MB/s</span>
-            </div>
+
+        <div class="status-overlay">
+            <span id="status-text">Connecting...</span> | 
+            <span id="peers-text" style="color:#2ecc71">0 Peers</span>
+        </div>
+
+        <div class="controls-overlay">
+            <button class="copy-btn" onclick="copyLink()">🔗 Copy Stream Link</button>
+            <input type="text" id="share-url" readonly style="display:none;"> <!-- Hidden for copy logic -->
+            <p style="font-size: 0.8rem; color: #aaa; margin-top: 5px;">Host must keep tab open</p>
         </div>
     </div>
 
     <script>
-        function log(msg) { document.getElementById('log').innerText = msg; }
-
-        // 1. CHECK LIBRARY LOAD
-        if (typeof WebTorrent === 'undefined') {
-            alert("Error: WebTorrent library blocked. Please disable AdBlock/Tracking Protection.");
-            log("Library Missing");
-        } else {
-            log("Library Loaded. Ready.");
-        }
-
-        const client = new WebTorrent();
+        /* --- 1. SETUP & CONFIG --- */
         const trackers = [
             'wss://tracker.openwebtorrent.com',
             'wss://tracker.btorrent.xyz',
-            'wss://tracker.files.fm:7073/announce'
+            'wss://tracker.webtorrent.dev',
+            'wss://tracker.files.fm:7073/announce',
+            'wss://tracker.fastcast.nz'
         ];
 
-        // 2. CHECK IF VISITOR IS A DOWNLOADER
-        if (window.location.hash.includes('#magnet=')) {
-            const magnet = decodeURIComponent(window.location.hash.substring(8));
-            startStream(magnet);
+        const client = new WebTorrent({
+            tracker: {
+                rtcConfig: {
+                    iceServers: [
+                        { urls: "stun:stun.l.google.com:19302" },
+                        { urls: "stun:global.stun.twilio.com:3478" }
+                    ]
+                }
+            }
+        });
+
+        // Suppress benign console errors
+        client.on('error', function(){});
+
+        /* --- 2. ROUTING LOGIC (The Fix for Blogger) --- */
+        if (window.location.hash.includes('magnet=')) {
+            const magnet = decodeURIComponent(window.location.hash.substring(8)); // Remove #magnet=
+            startStream(magnet, false);
         }
 
-        // 3. UPLOAD LOGIC
-        function startUpload(input) {
+        /* --- 3. UPLOAD HANDLER --- */
+        function handleFile(input) {
             const file = input.files[0];
             if (!file) return;
 
-            log("File selected: " + file.name);
-            document.getElementById('status-text').innerText = "Processing " + file.name + "... (Please Wait)";
-            document.querySelector('.btn-select').style.display = 'none';
+            // UI Updates
+            document.querySelector('.btn-main').classList.add('hidden');
+            document.getElementById('processing').classList.remove('hidden');
 
-            // Force Immediate Seed (No custom config to avoid errors)
+            // Format Check
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (['mkv', 'avi', 'wmv'].includes(ext)) {
+                alert("Warning: ."+ext+" files may not play in all browsers. Use MP4 or WEBM for best results.");
+            }
+
+            // Seed
             client.seed(file, { announce: trackers }, (torrent) => {
-                log("Torrent Created: " + torrent.infoHash);
+                const magnet = encodeURIComponent(torrent.magnetURI);
+                const link = `${window.location.origin}${window.location.pathname}#magnet=${magnet}`;
                 
-                const link = window.location.origin + window.location.pathname + '#magnet=' + encodeURIComponent(torrent.magnetURI);
+                // Save link for copying
+                document.getElementById('share-url').value = link;
                 
-                document.getElementById('share-link').value = link;
-                
-                // Switch View
-                document.getElementById('screen-upload').style.display = 'none';
-                document.getElementById('screen-player').style.display = 'block';
-                
-                // Start Playing Self
-                renderVideo(torrent);
+                // Switch to player
+                startStream(torrent.magnetURI, true);
             });
         }
 
-        // 4. DOWNLOAD LOGIC
-        function startStream(magnet) {
-            log("Connecting to swarm...");
-            document.getElementById('screen-upload').style.display = 'none';
-            document.getElementById('screen-player').style.display = 'block';
-            document.getElementById('share-link').value = window.location.href;
+        /* --- 4. STREAMING ENGINE --- */
+        function startStream(magnet, isHost) {
+            document.getElementById('view-upload').classList.add('hidden');
+            document.getElementById('view-player').style.display = 'block';
 
-            client.add(magnet, { announce: trackers }, (torrent) => {
-                log("Metadata received. Peers: " + torrent.numPeers);
-                renderVideo(torrent);
+            const torrent = client.get(magnet) || client.add(magnet, { announce: trackers });
+
+            // Update Link if Leecher
+            if(!isHost) {
+                 document.getElementById('share-url').value = window.location.href;
+            }
+
+            torrent.on('ready', () => {
+                // Find video file
+                const file = torrent.files.find(f => f.name.match(/\.(mp4|webm|mov|mkv)$/i)) || torrent.files[0];
+
+                // Magic Render
+                file.renderTo('#video-container', {
+                    autoplay: true,
+                    controls: true, // Native browser controls are most stable
+                    muted: false
+                }, (err, elem) => {
+                    if(err) {
+                        alert("Browser cannot play this video format. Try Chrome/Edge.");
+                        return;
+                    }
+                    elem.style.width = "100%";
+                    elem.style.height = "100%";
+                    document.getElementById('status-text').innerText = "Playing: " + file.name;
+                });
             });
-        }
 
-        // 5. RENDERER
-        function renderVideo(torrent) {
-            const file = torrent.files.find(f => f.name.match(/\.(mp4|webm|mkv|mov)$/i)) || torrent.files[0];
-            
-            file.renderTo('#video-container', { autoplay: true, controls: true }, (err, elem) => {
-                if (err) {
-                    log("Render Error: " + err.message);
-                    alert("Error playing video: " + err.message);
-                    return;
-                }
-                log("Playing: " + file.name);
-                elem.style.width = "100%";
-                elem.style.height = "100%";
-            });
-
-            // Stats Loop
+            // Stats
             setInterval(() => {
-                document.getElementById('peers').innerText = torrent.numPeers + " Peers";
-                document.getElementById('speed').innerText = (torrent.downloadSpeed / 1024 / 1024).toFixed(2) + " MB/s";
+                document.getElementById('peers-text').innerText = torrent.numPeers + " Peers";
+                
+                // Buffer Logic check
+                if(torrent.downloadSpeed > 0 || isHost) {
+                    document.getElementById('status-text').style.color = "#2ecc71";
+                }
             }, 1000);
         }
-        
-        // Prevent Tab Close
+
+        /* --- 5. UTILITIES --- */
+        function copyLink() {
+            const input = document.getElementById('share-url');
+            input.style.display = 'block'; // Must be visible to select
+            input.select();
+            document.execCommand("copy");
+            input.style.display = 'none';
+            alert("Link Copied to Clipboard!");
+        }
+
+        // Prevent Tab Closing
         window.onbeforeunload = function() {
             if (client.torrents.length > 0) return "Stream is active";
         };
+
+        // CSS Animation for Spinner
+        const styleSheet = document.createElement("style");
+        styleSheet.innerText = `
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        `;
+        document.head.appendChild(styleSheet);
     </script>
 </body>
 </html>
